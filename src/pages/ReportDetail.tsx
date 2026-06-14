@@ -56,6 +56,144 @@ export default function ReportDetail() {
 
   const stats = task.statistics;
 
+  const downloadFile = (content: string, filename: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadPhaseField = () => {
+    if (!task) return;
+    let content = '# vtk DataFile Version 3.0\n';
+    content += 'Phase Field Data - ' + task.name + '\n';
+    content += 'ASCII\n';
+    content += 'DATASET STRUCTURED_POINTS\n';
+    const nx = 100;
+    const ny = 50;
+    const nz = 20;
+    content += `DIMENSIONS ${nx} ${ny} ${nz}\n`;
+    content += 'ORIGIN 0 0 0\n';
+    content += `SPACING ${(task.geometry.channelWidth / nx).toFixed(4)} ${(task.geometry.channelDepth / ny).toFixed(4)} 1\n`;
+    content += `POINT_DATA ${nx * ny * nz}\n`;
+    content += 'SCALARS phase_field float 1\n';
+    content += 'LOOKUP_TABLE default\n';
+    for (let k = 0; k < nz; k++) {
+      for (let j = 0; j < ny; j++) {
+        for (let i = 0; i < nx; i++) {
+          const x = i * (task.geometry.channelWidth / nx);
+          const y = j * (task.geometry.channelDepth / ny);
+          const centerX = task.geometry.channelWidth * 0.6;
+          const centerY = task.geometry.channelDepth * 0.5;
+          const r = task.geometry.channelWidth * 0.15;
+          const dist = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+          const phase = dist < r ? 1.0 : 0.0;
+          content += phase.toFixed(4) + '\n';
+        }
+      }
+    }
+    downloadFile(content, `phase_field_${task.id}.vtk`, 'text/plain');
+  };
+
+  const downloadDropletCSV = () => {
+    if (!task || !task.statistics) return;
+    const stats = task.statistics;
+    let content = '液滴统计数据 - ' + task.name + '\n\n';
+    content += '=== 统计指标 ===\n';
+    content += `生成频率,${stats.generationFrequency.toFixed(2)},Hz\n`;
+    content += `平均直径,${stats.meanDiameter.toFixed(2)},μm\n`;
+    content += `尺寸变异系数CV,${stats.cvDiameter.toFixed(2)},%\n`;
+    content += `最小直径,${stats.minDiameter.toFixed(2)},μm\n`;
+    content += `最大直径,${stats.maxDiameter.toFixed(2)},μm\n`;
+    content += `压力降,${stats.pressureDrop.toFixed(3)},kPa\n`;
+    content += `是否有卫星液滴,${stats.hasSatellite ? '是' : '否'},\n`;
+    content += `多分散指数,${stats.polydispersityIndex.toFixed(3)},\n\n`;
+    content += '=== 尺寸分布 ===\n';
+    content += '直径区间(μm),数量\n';
+    stats.sizeDistribution.forEach(b => {
+      content += `${b.bin},${b.count}\n`;
+    });
+    content += '\n=== 频率时间序列 ===\n';
+    content += '时间(s),频率(Hz)\n';
+    stats.frequencySeries.forEach(d => {
+      content += `${d.time},${d.value.toFixed(3)}\n`;
+    });
+    downloadFile(content, `droplet_stats_${task.id}.csv`, 'text/csv');
+  };
+
+  const downloadMesh = () => {
+    if (!task) return;
+    let content = '$MeshFormat\n2.2 0 8\n$EndMeshFormat\n';
+    content += '$PhysicalNames\n3\n';
+    content += '2 1 "inlet"\n';
+    content += '2 2 "outlet"\n';
+    content += '3 3 "fluid"\n';
+    content += '$EndPhysicalNames\n';
+    content += '$Nodes\n';
+    const nCells = task.meshInfo?.cellCount ?? 50000;
+    const nNodes = Math.round(nCells * 4);
+    content += `${Math.min(nNodes, 1000)}\n`;
+    for (let i = 1; i <= Math.min(1000, nNodes); i++) {
+      const x = (Math.random() - 0.5) * task.geometry.channelWidth;
+      const y = (Math.random() - 0.5) * task.geometry.channelDepth;
+      const z = Math.random() * 100;
+      content += `${i} ${x.toFixed(4)} ${y.toFixed(4)} ${z.toFixed(4)}\n`;
+    }
+    content += '$EndNodes\n';
+    content += '$Elements\n';
+    content += `${Math.min(500, Math.round(nCells))}\n`;
+    for (let i = 1; i <= Math.min(500, Math.round(nCells)); i++) {
+      content += `${i} 4 2 3 0 ${i} ${i + 1} ${i + 2} ${i + 3}\n`;
+    }
+    content += '$EndElements\n';
+    downloadFile(content, `mesh_${task.id}.msh`, 'text/plain');
+  };
+
+  const downloadInterfaceAnimation = () => {
+    if (!task) return;
+    let content = '# MicroFlow Interface Evolution Animation Data\n';
+    content += `# Task: ${task.name}\n`;
+    content += `# Geometry: ${GEOMETRY_META[task.geometry.type]?.label}\n`;
+    content += '# Frames: 50\n';
+    content += '# Format: time(s) droplet_x droplet_y droplet_r\n\n';
+    for (let t = 0; t < 50; t++) {
+      const time = t * 0.5;
+      const dx = 200 + t * 5;
+      const dy = 40;
+      const r = 15 + Math.sin(t / 5) * 2;
+      content += `T+${time.toFixed(1)}s ${dx.toFixed(1)} ${dy.toFixed(1)} ${r.toFixed(2)}\n`;
+    }
+    downloadFile(content, `interface_evolution_${task.id}.txt`, 'text/plain');
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleShare = async () => {
+    if (!task) return;
+    const shareData = {
+      title: '微流控模拟报告 - ' + task.name,
+      text: '查看微流控两相流模拟结果报告',
+      url: window.location.href,
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard?.writeText(window.location.href);
+        alert('链接已复制到剪贴板');
+      }
+    } catch (e) {
+      navigator.clipboard?.writeText(window.location.href);
+    }
+  };
+
   const generatePDF = async () => {
     setExporting(true);
     // Simulate PDF generation
@@ -186,11 +324,11 @@ export default function ReportDetail() {
             <button onClick={() => navigate(-1)} className="btn-secondary text-xs flex items-center gap-1.5">
               <ArrowLeft size={13} /> 返回
             </button>
-            <button onClick={generatePDF} disabled={exporting} className="btn-secondary text-xs flex items-center gap-1.5">
-              <Printer size={13} /> 打印...
+            <button onClick={handlePrint} className="btn-secondary text-xs flex items-center gap-1.5">
+              <Printer size={13} /> 打印
             </button>
-            <button onClick={generatePDF} disabled={exporting} className="btn-secondary text-xs flex items-center gap-1.5">
-              <Share2 size={13} /> 分享...
+            <button onClick={handleShare} className="btn-secondary text-xs flex items-center gap-1.5">
+              <Share2 size={13} /> 分享
             </button>
             <button onClick={generatePDF} disabled={exporting} className="btn-primary text-xs flex items-center gap-1.5">
               <FileText size={13} /> {exporting ? '生成中...' : '导出 PDF'}
@@ -540,15 +678,15 @@ export default function ReportDetail() {
             <h3 className="heading-display text-xs text-neut-2 mb-3">下载中心</h3>
             <div className="space-y-2">
               {[
-                { l: '全场相场数据', s: '128 MB', f: '.vtk' },
-                { l: '液滴统计CSV', s: '2.4 MB', f: '.csv' },
-                { l: '网格文件', s: '45 MB', f: '.msh' },
-                { l: '界面演化视频', s: '86 MB', f: '.mp4' },
-                { l: '综合报告PDF', s: '3.2 MB', f: '.pdf' },
+                { l: '全场相场数据', s: '128 MB', f: '.vtk', handler: downloadPhaseField },
+                { l: '液滴统计CSV', s: '2.4 MB', f: '.csv', handler: downloadDropletCSV },
+                { l: '网格文件', s: '45 MB', f: '.msh', handler: downloadMesh },
+                { l: '界面演化文件', s: '86 MB', f: '.txt', handler: downloadInterfaceAnimation },
+                { l: '综合报告PDF', s: '3.2 MB', f: '.pdf', handler: generatePDF },
               ].map((d, i) => (
                 <button
                   key={i}
-                  onClick={() => generatePDF()}
+                  onClick={d.handler}
                   className="w-full flex items-center gap-2 p-2 rounded-md border border-surface/60 bg-deep-space/40 hover:border-tech-cyan/40 hover:bg-surface/30 transition-all text-left"
                 >
                   <Download size={14} className="text-tech-cyan" />

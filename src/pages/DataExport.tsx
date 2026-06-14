@@ -77,7 +77,7 @@ export default function DataExport() {
     URL.revokeObjectURL(url);
   };
 
-  const generateCSV = (taskList: typeof filtered): string) => {
+  const generateCSV = (taskList: typeof filtered): string => {
     const headers = [
       '任务ID', '任务名称', '几何构型', '通道宽度(μm)', '通道深度(μm)',
       '界面张力(mN/m)', '连续相黏度(mPa·s)', '分散相黏度(mPa·s)',
@@ -168,7 +168,7 @@ export default function DataExport() {
   const generateTecplot = (taskList: typeof filtered): string => {
     let content = 'TITLE = "MicroFlow CFD Simulation Data"\n';
     content += 'VARIABLES = "X" "Y" "Phase" "U" "V" "P"\n';
-    content += `ZONE T="Zone 1" I=50 J=25 K=1 F=POINT\n';
+    content += `ZONE T="Zone 1" I=50 J=25 K=1 F=POINT\n`;
     for (let j = 0; j < 25; j++) {
       for (let i = 0; i < 50; i++) {
         const x = i * 2;
@@ -201,7 +201,7 @@ export default function DataExport() {
         clearInterval(id);
         setTimeout(() => {
           const timestamp = new Date().toISOString().slice(0, 10);
-          const extMap: Record<ExportFormat, { gen: (tl: any) => string, mime: string, ext: string> = {
+          const extMap: Record<ExportFormat, { gen: (tl: any) => string; mime: string; ext: string }> = {
             csv: { gen: generateCSV, mime: 'text/csv', ext: '.csv' },
             json: { gen: generateJSON, mime: 'application/json', ext: '.json' },
             vtk: { gen: generateVTK, mime: 'text/plain', ext: '.vtk' },
