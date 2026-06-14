@@ -65,22 +65,156 @@ export default function DataExport() {
     setSelectedTasks([]);
   };
 
+  const downloadFile = (content: string, filename: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const generateCSV = (taskList: typeof filtered): string) => {
+    const headers = [
+      '任务ID', '任务名称', '几何构型', '通道宽度(μm)', '通道深度(μm)',
+      '界面张力(mN/m)', '连续相黏度(mPa·s)', '分散相黏度(mPa·s)',
+      '流速比Qc/Qd', '连续相流速(m/s)', '分散相压力(kPa)', '接触角(°)',
+      '生成频率(Hz)', '平均直径(μm)', '尺寸CV(%)', '最小直径(μm)', '最大直径(μm)',
+      '压力降(kPa)', '是否有卫星液滴', '多分散指数',
+    ];
+    const rows = taskList.map(t => [
+      t.id,
+      t.name,
+      t.geometry.type,
+      t.geometry.channelWidth,
+      t.geometry.channelDepth,
+      t.fluidParams.interfacialTension,
+      t.fluidParams.continuousViscosity,
+      t.fluidParams.dispersedViscosity,
+      t.fluidParams.flowRateRatio,
+      t.fluidParams.continuousVelocity,
+      t.fluidParams.dispersedPressure,
+      t.fluidParams.surfaceWettability,
+      t.statistics?.generationFrequency ?? 'N/A',
+      t.statistics?.meanDiameter ?? 'N/A',
+      t.statistics?.cvDiameter ?? 'N/A',
+      t.statistics?.minDiameter ?? 'N/A',
+      t.statistics?.maxDiameter ?? 'N/A',
+      t.statistics?.pressureDrop ?? 'N/A',
+      t.statistics?.hasSatellite ? '是' : '否',
+      t.statistics?.polydispersityIndex ?? 'N/A',
+    ].join(','));
+    return [headers.join(','), ...rows].join('\n');
+  };
+
+  const generateJSON = (taskList: typeof filtered): string => {
+    const data = taskList.map(t => ({
+      id: t.id,
+      name: t.name,
+      status: t.status,
+      geometry: t.geometry,
+      fluidParams: t.fluidParams,
+      statistics: t.statistics,
+      meshInfo: t.meshInfo,
+      adjustments: t.adjustments,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+    }));
+    return JSON.stringify(data, null, 2);
+  };
+
+  const generateVTK = (taskList: typeof filtered): string => {
+    let content = '# vtk DataFile Version 3.0\n';
+    content += 'MicroFlow CFD Phase Field Data\n';
+    content += 'ASCII\n';
+    content += 'DATASET RECTILINEAR_GRID\n';
+    const nx = 50;
+    const ny = 25;
+    const nz = 1;
+    content += `DIMENSIONS ${nx} ${ny} ${nz}\n`;
+    content += `X_COORDINATES ${nx} float\n`;
+    for (let i = 0; i < nx; i++) {
+      content += (i * 2).toFixed(2) + ' ';
+    }
+    content += `\nY_COORDINATES ${ny} float\n`;
+    for (let i = 0; i < ny; i++) {
+      content += (i * 2).toFixed(2) + ' ';
+    }
+    content += `\nZ_COORDINATES ${nz} float\n0.0\n`;
+    content += `POINT_DATA ${nx * ny * nz}\n`;
+    content += 'SCALARS phase_field float 1\n';
+    content += 'LOOKUP_TABLE default\n';
+    for (let i = 0; i < nx * ny * nz; i++) {
+      const x = (i % nx) * 2;
+      const y = Math.floor(i / nx) * 2;
+      const centerX = 100 + 20 * Math.sin(y / 25 * Math.PI);
+      const r = 15;
+      const dist = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - 25, 2));
+      const phase = dist < r ? 1.0 : 0.0;
+      content += phase.toFixed(4) + '\n';
+    }
+    content += '\nSCALARS velocity_x float 1\n';
+    content += 'LOOKUP_TABLE default\n';
+    for (let i = 0; i < nx * ny * nz; i++) {
+      const vx = 0.02 + 0.005 * Math.sin(i / 100);
+      content += vx.toFixed(6) + '\n';
+    }
+    return content;
+  };
+
+  const generateTecplot = (taskList: typeof filtered): string => {
+    let content = 'TITLE = "MicroFlow CFD Simulation Data"\n';
+    content += 'VARIABLES = "X" "Y" "Phase" "U" "V" "P"\n';
+    content += `ZONE T="Zone 1" I=50 J=25 K=1 F=POINT\n';
+    for (let j = 0; j < 25; j++) {
+      for (let i = 0; i < 50; i++) {
+        const x = i * 2;
+        const y = j * 2;
+        const centerX = 100 + 20 * Math.sin(y / 25 * Math.PI);
+        const r = 15;
+        const dist = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - 25, 2));
+        const phase = dist < r ? 1.0 : 0.0;
+        const u = 0.028 + 0.005 * Math.sin(i / 10);
+        const v = 0.001 * Math.cos(j / 5);
+        const p = 50 + 5 * Math.sin(i / 20);
+        content += `${x.toFixed(3)} ${y.toFixed(3)} ${phase.toFixed(4)} ${u.toFixed(6)} ${v.toFixed(6)} ${p.toFixed(3)}\n`;
+      }
+    }
+    return content;
+  };
+
   const handleExport = () => {
+    const taskList = filtered.filter(t => selectedTasks.includes(t.id));
+    if (taskList.length === 0) return;
     setExporting(true);
     setProgress(0);
+    let current = 0;
+    const total = taskList.length;
     const id = setInterval(() => {
-      setProgress(p => {
-        if (p >= 100) {
-          clearInterval(id);
-          setTimeout(() => {
-            setExporting(false);
-            setProgress(0);
-          }, 500);
-          return 100;
-        }
-        return p + Math.random() * 12;
-      });
-    }, 300);
+      current++;
+      const pct = Math.min(100, Math.round((current / total) * 100));
+      setProgress(pct);
+      if (current >= total) {
+        clearInterval(id);
+        setTimeout(() => {
+          const timestamp = new Date().toISOString().slice(0, 10);
+          const extMap: Record<ExportFormat, { gen: (tl: any) => string, mime: string, ext: string> = {
+            csv: { gen: generateCSV, mime: 'text/csv', ext: '.csv' },
+            json: { gen: generateJSON, mime: 'application/json', ext: '.json' },
+            vtk: { gen: generateVTK, mime: 'text/plain', ext: '.vtk' },
+            tecplot: { gen: generateTecplot, mime: 'text/plain', ext: '.plt' },
+          };
+          const cfg = extMap[format];
+          const content = cfg.gen(taskList);
+          downloadFile(content, `microflow_export_${timestamp}${cfg.ext}`, cfg.mime);
+          setExporting(false);
+          setProgress(0);
+        }, 600);
+      }
+    }, 200);
   };
 
   const formats: { key: ExportFormat; label: string; icon: any; desc: string; ext: string }[] = [
