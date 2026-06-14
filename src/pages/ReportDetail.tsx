@@ -73,7 +73,10 @@ export default function ReportDetail() {
   const downloadPhaseField = () => {
     if (!task) return;
     let content = '# vtk DataFile Version 3.0\n';
-    content += 'Phase Field Data - ' + task.name + '\n';
+    content += `Phase Field Data - ${task.name}\n`;
+    content += `Task ID: ${task.id}\n`;
+    content += `Geometry: ${task.geometry.type} (${GEOMETRY_META[task.geometry.type]?.label})\n`;
+    content += `Channel: ${task.geometry.channelWidth}μm × ${task.geometry.channelDepth}μm\n`;
     content += 'ASCII\n';
     content += 'DATASET STRUCTURED_POINTS\n';
     const nx = 100;
@@ -130,13 +133,20 @@ export default function ReportDetail() {
 
   const downloadMesh = () => {
     if (!task) return;
-    let content = '$MeshFormat\n2.2 0 8\n$EndMeshFormat\n';
-    content += '$PhysicalNames\n3\n';
-    content += '2 1 "inlet"\n';
-    content += '2 2 "outlet"\n';
-    content += '3 3 "fluid"\n';
-    content += '$EndPhysicalNames\n';
-    content += '$Nodes\n';
+    let content = `$MeshFormat\n2.2 0 8\n$EndMeshFormat\n`;
+    content += `$Comments\n`;
+    content += `Task: ${task.name}\n`;
+    content += `Task ID: ${task.id}\n`;
+    content += `Geometry: ${task.geometry.type} (${GEOMETRY_META[task.geometry.type]?.label})\n`;
+    content += `Channel: ${task.geometry.channelWidth}um x ${task.geometry.channelDepth}um\n`;
+    content += `Total cells: ${task.meshInfo?.cellCount?.toLocaleString() ?? 'N/A'}\n`;
+    content += `$EndComments\n`;
+    content += `$PhysicalNames\n3\n`;
+    content += `2 1 "inlet"\n`;
+    content += `2 2 "outlet"\n`;
+    content += `3 3 "fluid"\n`;
+    content += `$EndPhysicalNames\n`;
+    content += `$Nodes\n`;
     const nCells = task.meshInfo?.cellCount ?? 50000;
     const nNodes = Math.round(nCells * 4);
     content += `${Math.min(nNodes, 1000)}\n`;

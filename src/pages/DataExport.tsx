@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/ui';
 import { useAppStore } from '@/store/appStore';
 import { HistogramChart } from '@/components/charts';
+import JSZip from 'jszip';
 import {
   Download,
   Filter,
@@ -65,8 +66,8 @@ export default function DataExport() {
     setSelectedTasks([]);
   };
 
-  const downloadFile = (content: string, filename: string, mimeType: string) => {
-    const blob = new Blob([content], { type: mimeType });
+  const downloadFile = (content: string | Blob, filename: string, mimeType: string) => {
+    const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -76,6 +77,8 @@ export default function DataExport() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+
+  const safeFilename = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_');
 
   const generateCSV = (taskList: typeof filtered): string => {
     const headers = [
@@ -126,67 +129,91 @@ export default function DataExport() {
     return JSON.stringify(data, null, 2);
   };
 
-  const generateVTK = (taskList: typeof filtered): string => {
-    let content = '# vtk DataFile Version 3.0\n';
-    content += 'MicroFlow CFD Phase Field Data\n';
-    content += 'ASCII\n';
-    content += 'DATASET RECTILINEAR_GRID\n';
-    const nx = 50;
-    const ny = 25;
-    const nz = 1;
-    content += `DIMENSIONS ${nx} ${ny} ${nz}\n`;
-    content += `X_COORDINATES ${nx} float\n`;
-    for (let i = 0; i < nx; i++) {
-      content += (i * 2).toFixed(2) + ' ';
-    }
-    content += `\nY_COORDINATES ${ny} float\n`;
-    for (let i = 0; i < ny; i++) {
-      content += (i * 2).toFixed(2) + ' ';
-    }
-    content += `\nZ_COORDINATES ${nz} float\n0.0\n`;
-    content += `POINT_DATA ${nx * ny * nz}\n`;
-    content += 'SCALARS phase_field float 1\n';
-    content += 'LOOKUP_TABLE default\n';
-    for (let i = 0; i < nx * ny * nz; i++) {
-      const x = (i % nx) * 2;
-      const y = Math.floor(i / nx) * 2;
-      const centerX = 100 + 20 * Math.sin(y / 25 * Math.PI);
-      const r = 15;
-      const dist = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - 25, 2));
-      const phase = dist < r ? 1.0 : 0.0;
-      content += phase.toFixed(4) + '\n';
-    }
-    content += '\nSCALARS velocity_x float 1\n';
-    content += 'LOOKUP_TABLE default\n';
-    for (let i = 0; i < nx * ny * nz; i++) {
-      const vx = 0.02 + 0.005 * Math.sin(i / 100);
-      content += vx.toFixed(6) + '\n';
+  const getTaskSafeName = (task: any, idx: number) => {
+    const geoLabel = task.geometry.type;
+    const taskName = safeFilename(task.name).slice(0, 30);
+    const taskIdx = String(idx + 1).padStart(2, '0');
+    return `${taskIdx}_${geoLabel}_${taskName}_${task.id.slice(-4)}`;
+  };
+
+  const generateTaskSummaryCSV = (task: any): string => {
+    const stats = task.statistics;
+    let content = `任务ID,${task.id}\n`;
+    content += `任务名称,${task.name}\n`;
+    content += `几何构型,${task.geometry.type}\n`;
+    content += `几何来源,${task.geometry.source === 'builtin' ? '内置模板' : '用户上传'}\n`;
+    content += `几何文件,${task.geometry.originalFileName || task.geometry.fileName}\n`;
+    content += `通道宽度(μm),${task.geometry.channelWidth}\n`;
+    content += `通道深度(μm),${task.geometry.channelDepth}\n`;
+    content += `界面张力(mN/m),${task.fluidParams.interfacialTension}\n`;
+    content += `连续相黏度(mPa·s),${task.fluidParams.continuousViscosity}\n`;
+    content += `分散相黏度(mPa·s),${task.fluidParams.dispersedViscosity}\n`;
+    content += `流速比Qc/Qd,${task.fluidParams.flowRateRatio}\n`;
+    content += `连续相流速(m/s),${task.fluidParams.continuousVelocity}\n`;
+    content += `分散相压力(kPa),${task.fluidParams.dispersedPressure}\n`;
+    content += `接触角(°),${task.fluidParams.surfaceWettability}\n`;
+    content += `\n=== 液滴统计结果 ===\n`;
+    if (stats) {
+      content += `生成频率(Hz),${stats.generationFrequency?.toFixed(2) ?? 'N/A'}\n`;
+      content += `平均直径(μm),${stats.meanDiameter?.toFixed(2) ?? 'N/A'}\n`;
+      content += `尺寸CV(%),${stats.cvDiameter?.toFixed(2) ?? 'N/A'}\n`;
+      content += `最小直径(μm),${stats.minDiameter?.toFixed(2) ?? 'N/A'}\n`;
+      content += `最大直径(μm),${stats.maxDiameter?.toFixed(2) ?? 'N/A'}\n`;
+      content += `压力降(kPa),${stats.pressureDrop?.toFixed(3) ?? 'N/A'}\n`;
+      content += `有卫星液滴,${stats.hasSatellite ? '是' : '否'}\n`;
+      content += `多分散指数,${stats.polydispersityIndex?.toFixed(4) ?? 'N/A'}\n`;
     }
     return content;
   };
 
-  const generateTecplot = (taskList: typeof filtered): string => {
-    let content = 'TITLE = "MicroFlow CFD Simulation Data"\n';
-    content += 'VARIABLES = "X" "Y" "Phase" "U" "V" "P"\n';
-    content += `ZONE T="Zone 1" I=50 J=25 K=1 F=POINT\n`;
-    for (let j = 0; j < 25; j++) {
-      for (let i = 0; i < 50; i++) {
-        const x = i * 2;
-        const y = j * 2;
-        const centerX = 100 + 20 * Math.sin(y / 25 * Math.PI);
-        const r = 15;
-        const dist = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - 25, 2));
-        const phase = dist < r ? 1.0 : 0.0;
-        const u = 0.028 + 0.005 * Math.sin(i / 10);
-        const v = 0.001 * Math.cos(j / 5);
-        const p = 50 + 5 * Math.sin(i / 20);
-        content += `${x.toFixed(3)} ${y.toFixed(3)} ${phase.toFixed(4)} ${u.toFixed(6)} ${v.toFixed(6)} ${p.toFixed(3)}\n`;
-      }
-    }
-    return content;
+  const generateBatchSummaryCSV = (taskList: any[]): string => {
+    const headers = [
+      '序号', '任务ID', '任务名称', '几何类型', '几何来源', '通道宽度(μm)', '通道深度(μm)',
+      '界面张力(mN/m)', '流速比Qc/Qd', '连续相流速(m/s)', '分散相压力(kPa)',
+      '生成频率(Hz)', '平均直径(μm)', '尺寸CV(%)', '压力降(kPa)', '有卫星液滴',
+    ];
+    const rows = taskList.map((t, idx) => [
+      idx + 1,
+      t.id,
+      t.name,
+      t.geometry.type,
+      t.geometry.source === 'builtin' ? '内置' : '上传',
+      t.geometry.channelWidth,
+      t.geometry.channelDepth,
+      t.fluidParams.interfacialTension,
+      t.fluidParams.flowRateRatio,
+      t.fluidParams.continuousVelocity,
+      t.fluidParams.dispersedPressure,
+      t.statistics?.generationFrequency ?? '',
+      t.statistics?.meanDiameter ?? '',
+      t.statistics?.cvDiameter ?? '',
+      t.statistics?.pressureDrop ?? '',
+      t.statistics?.hasSatellite ? '是' : '否',
+    ].join(','));
+    return [headers.join(','), ...rows].join('\n');
   };
 
-  const safeFilename = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_');
+  const generateBatchSummaryJSON = (taskList: any[]): string => {
+    const data = {
+      exportTime: new Date().toISOString(),
+      taskCount: taskList.length,
+      tasks: taskList.map((t, idx) => ({
+        index: idx + 1,
+        id: t.id,
+        name: t.name,
+        geometry: {
+          type: t.geometry.type,
+          source: t.geometry.source,
+          channelWidth: t.geometry.channelWidth,
+          channelDepth: t.geometry.channelDepth,
+          fileName: t.geometry.originalFileName || t.geometry.fileName,
+        },
+        fluidParams: t.fluidParams,
+        statistics: t.statistics,
+      })),
+    };
+    return JSON.stringify(data, null, 2);
+  };
 
   const generateTaskVTK = (task: any): string => {
     let content = '# vtk DataFile Version 3.0\n';
@@ -242,27 +269,28 @@ export default function DataExport() {
     return content;
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     const taskList = filtered.filter(t => selectedTasks.includes(t.id));
     if (taskList.length === 0) return;
     setExporting(true);
     setProgress(0);
     const timestamp = new Date().toISOString().slice(0, 10);
 
-    if (taskList.length === 1) {
-      const task = taskList[0];
-      const geoLabel = task.geometry.type;
-      const taskName = safeFilename(task.name).slice(0, 40);
-      setTimeout(() => {
+    try {
+      if (taskList.length === 1) {
+        const task = taskList[0];
+        const geoLabel = task.geometry.type;
+        const taskName = safeFilename(task.name).slice(0, 40);
+        await new Promise(r => setTimeout(r, 300));
         let content = '';
         let ext = '';
         let mime = '';
         if (format === 'csv') {
-          content = generateCSV(taskList);
+          content = generateTaskSummaryCSV(task);
           ext = '.csv';
           mime = 'text/csv';
         } else if (format === 'json') {
-          content = generateJSON(taskList);
+          content = JSON.stringify(task, null, 2);
           ext = '.json';
           mime = 'application/json';
         } else if (format === 'vtk') {
@@ -274,54 +302,127 @@ export default function DataExport() {
           ext = '.plt';
           mime = 'text/plain';
         }
-        const filename = `${geoLabel}_${taskName}_${timestamp}${ext}`;
+        const filename = `01_${geoLabel}_${taskName}_${task.id.slice(-4)}_${timestamp}${ext}`;
         downloadFile(content, filename, mime);
         setProgress(100);
         setTimeout(() => {
           setExporting(false);
           setProgress(0);
         }, 600);
-      }, 500);
-      return;
-    }
-
-    let current = 0;
-    const total = taskList.length;
-    const timer = setInterval(() => {
-      current++;
-      const pct = Math.min(100, Math.round((current / total) * 100));
-      setProgress(pct);
-      if (current >= total) {
-        clearInterval(timer);
-        setTimeout(() => {
-          if (format === 'csv') {
-            const content = generateCSV(taskList);
-            downloadFile(content, `microflow_batch_${timestamp}_${taskList.length}tasks.csv`, 'text/csv');
-          } else if (format === 'json') {
-            const content = generateJSON(taskList);
-            downloadFile(content, `microflow_batch_${timestamp}_${taskList.length}tasks.json`, 'application/json');
-          } else if (format === 'vtk') {
-            taskList.forEach((task, idx) => {
-              setTimeout(() => {
-                const content = generateTaskVTK(task);
-                const taskName = safeFilename(task.name).slice(0, 30);
-                downloadFile(content, `${String(idx + 1).padStart(2, '0')}_${taskName}.vtk`, 'text/plain');
-              }, idx * 200);
-            });
-          } else {
-            taskList.forEach((task, idx) => {
-              setTimeout(() => {
-                const content = generateTaskTecplot(task);
-                const taskName = safeFilename(task.name).slice(0, 30);
-                downloadFile(content, `${String(idx + 1).padStart(2, '0')}_${taskName}.plt`, 'text/plain');
-              }, idx * 200);
-            });
-          }
-          setExporting(false);
-          setProgress(0);
-        }, 600);
+        return;
       }
-    }, 150);
+
+      const zip = new JSZip();
+      const metaFolder = zip.folder('_EXPORT_METADATA');
+      if (metaFolder) {
+        const readme = `微流控模拟数据批量导出
+========================
+导出时间: ${new Date().toLocaleString('zh-CN')}
+任务数量: ${taskList.length}
+导出格式: ${format}
+筛选条件:
+  - 几何构型: ${geoFilter === 'all' ? '全部' : geoFilter}
+  - 流速比: ${flowRatioRange[0]} - ${flowRatioRange[1]}
+  - 界面张力: ${tensionRange[0]} - ${tensionRange[1]} mN/m
+  - 通道宽度: ${widthRange[0]} - ${widthRange[1]} μm
+  - CV ≤ ${cvThreshold}%
+
+目录说明:
+==========
+每个任务对应一个独立文件夹，命名规则：
+  {序号}_{几何类型}_{任务名缩写}_{任务ID后4位}/
+    ├── {任务名}_summary.csv        任务汇总数据
+    ├── {任务名}_details.json        任务完整结构化数据
+    ├── {任务名}_stats.csv           液滴统计数据（可选）
+    ├── {任务名}_phasefield.vtk      相场数据（仅VTK格式）
+    ├── {任务名}_flowfield.plt       流场数据（仅TecPlot格式）
+    └── {任务名}_info.txt            元信息说明
+
+_EXECUTION_METADATA/ 目录:
+    ├── batch_summary.csv             全部任务汇总表
+    ├── batch_summary.json            完整结构化数据
+    └── README.txt                    本说明文件
+`;
+        metaFolder.file('README.txt', readme);
+        metaFolder.file('batch_summary.csv', generateBatchSummaryCSV(taskList));
+        metaFolder.file('batch_summary.json', generateBatchSummaryJSON(taskList));
+      }
+
+      const total = taskList.length;
+      for (let idx = 0; idx < taskList.length; idx++) {
+        const task = taskList[idx];
+        const taskFolderName = getTaskSafeName(task, idx);
+        const taskFolder = zip.folder(taskFolderName);
+        if (!taskFolder) continue;
+
+        const baseName = `${task.geometry.type}_${safeFilename(task.name).slice(0, 25)}`;
+        taskFolder.file(`${baseName}_summary.csv`, generateTaskSummaryCSV(task));
+        taskFolder.file(`${baseName}_details.json`, JSON.stringify(task, null, 2));
+
+        if (task.statistics?.sizeDistribution) {
+          let csv = '直径区间(μm),数量\n';
+          task.statistics.sizeDistribution.forEach((b: any) => {
+            csv += `${b.bin},${b.count}\n`;
+          });
+          taskFolder.file(`${baseName}_size_distribution.csv`, csv);
+        }
+
+        if (task.statistics?.frequencySeries) {
+          let csv = '时间(s),频率(Hz)\n';
+          task.statistics.frequencySeries.forEach((d: any) => {
+            csv += `${d.time},${d.value}\n`;
+          });
+          taskFolder.file(`${baseName}_frequency_series.csv`, csv);
+        }
+
+        if (format === 'vtk') {
+          taskFolder.file(`${baseName}_phasefield.vtk`, generateTaskVTK(task));
+        }
+        if (format === 'tecplot') {
+          taskFolder.file(`${baseName}_flowfield.plt`, generateTaskTecplot(task));
+        }
+
+        const info = `任务元信息
+==========
+任务ID: ${task.id}
+任务名称: ${task.name}
+创建时间: ${new Date(task.createdAt).toLocaleString('zh-CN')}
+几何构型: ${task.geometry.type}
+几何来源: ${task.geometry.source === 'builtin' ? '内置模板' : '用户上传 v' + (task.geometry.version || 1)}
+几何文件: ${task.geometry.originalFileName || task.geometry.fileName}
+通道尺寸: ${task.geometry.channelWidth} × ${task.geometry.channelDepth} μm
+
+推荐来源: ${task.recommendationSource ? `AI推荐 (置信度 ${(task.recommendationSource.confidence * 100).toFixed(0)}%)` : '手动创建'}
+
+文件列表:
+- summary.csv:   核心参数与结果汇总
+- details.json:  完整结构化数据（用于程序处理）
+- size_distribution.csv: 液滴尺寸分布
+- frequency_series.csv:  生成频率时间序列
+- phasefield.vtk: 相场三维数据（仅VTK格式）
+- flowfield.plt:  流场数据（仅TecPlot格式）
+`;
+        taskFolder.file(`${baseName}_info.txt`, info);
+
+        setProgress(Math.min(100, Math.round(((idx + 1) / total) * 100)));
+        await new Promise(r => setTimeout(r, 50));
+      }
+
+      setProgress(95);
+      const content = await zip.generateAsync({ type: 'blob' });
+      const zipFilename = `microflow_${format}_${taskList.length}tasks_${timestamp}.zip`;
+      downloadFile(content, zipFilename, 'application/zip');
+      setProgress(100);
+
+      setTimeout(() => {
+        setExporting(false);
+        setProgress(0);
+      }, 800);
+    } catch (e) {
+      console.error('导出失败', e);
+      setExporting(false);
+      setProgress(0);
+    }
   };
 
   const formats: { key: ExportFormat; label: string; icon: any; desc: string; ext: string }[] = [
