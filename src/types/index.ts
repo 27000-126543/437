@@ -52,6 +52,8 @@ export const ALERT_TYPE_LABEL: Record<AlertType, string> = {
   pressure_spike: '通道压力骤升',
 };
 
+export type GeometrySource = 'builtin' | 'uploaded';
+
 export interface GeometryConfig {
   id: string;
   type: GeometryType;
@@ -62,6 +64,13 @@ export interface GeometryConfig {
   structure: string;
   riskPaused?: boolean;
   consecutiveFailures?: number;
+  source: GeometrySource;
+  version?: number;
+  originalFileName?: string;
+  note?: string;
+  uploadedBy?: string;
+  uploadedAt?: string;
+  parentId?: string;
 }
 
 export interface FluidParams {
@@ -156,6 +165,13 @@ export interface SimulationTask {
   updatedAt: string;
   currentStage: ApprovalStage | 'none';
   pushedToLithography: boolean;
+  recommendationSource?: {
+    recommendationId: string;
+    geometryLabel: string;
+    predictedCv: number;
+    predictedFrequency: number;
+    confidence: number;
+  };
   meshInfo?: {
     cellCount: number;
     boundaryLayers: number;

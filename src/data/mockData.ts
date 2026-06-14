@@ -48,6 +48,8 @@ const GEOMETRIES: GeometryConfig[] = [
     orificeWidth: 50,
     structure: '三通道流动聚焦，聚焦区长度150μm',
     consecutiveFailures: 0,
+    source: 'builtin',
+    version: 1,
   },
   {
     id: 'geo-002',
@@ -58,6 +60,8 @@ const GEOMETRIES: GeometryConfig[] = [
     structure: '标准T型交叉，两相垂直入口',
     consecutiveFailures: 3,
     riskPaused: true,
+    source: 'builtin',
+    version: 1,
   },
   {
     id: 'geo-003',
@@ -68,6 +72,8 @@ const GEOMETRIES: GeometryConfig[] = [
     orificeWidth: 30,
     structure: '聚焦式骤缩结构，适配高黏度体系',
     consecutiveFailures: 0,
+    source: 'builtin',
+    version: 2,
   },
   {
     id: 'geo-004',
@@ -77,6 +83,8 @@ const GEOMETRIES: GeometryConfig[] = [
     channelDepth: 60,
     structure: '阶梯式乳化阵列，8并行微孔单元',
     consecutiveFailures: 1,
+    source: 'builtin',
+    version: 1,
   },
   {
     id: 'geo-005',
@@ -86,6 +94,8 @@ const GEOMETRIES: GeometryConfig[] = [
     channelDepth: 120,
     structure: '毛细管同轴，内径30μm/外径80μm',
     consecutiveFailures: 0,
+    source: 'builtin',
+    version: 1,
   },
 ];
 
