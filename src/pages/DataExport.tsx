@@ -186,35 +186,142 @@ export default function DataExport() {
     return content;
   };
 
+  const safeFilename = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_');
+
+  const generateTaskVTK = (task: any): string => {
+    let content = '# vtk DataFile Version 3.0\n';
+    content += `Phase Field - ${task.name}\n`;
+    content += `Task ID: ${task.id}\n`;
+    content += `Geometry: ${task.geometry.type}\n`;
+    content += 'ASCII\n';
+    content += 'DATASET STRUCTURED_POINTS\n';
+    const nx = 80;
+    const ny = 40;
+    const nz = 1;
+    content += `DIMENSIONS ${nx} ${ny} ${nz}\n`;
+    content += 'ORIGIN 0 0 0\n';
+    content += `SPACING ${(task.geometry.channelWidth / nx).toFixed(4)} ${(task.geometry.channelDepth / ny).toFixed(4)} 1\n`;
+    content += `POINT_DATA ${nx * ny * nz}\n`;
+    content += 'SCALARS phase_field float 1\n';
+    content += 'LOOKUP_TABLE default\n';
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const x = i * (task.geometry.channelWidth / nx);
+        const y = j * (task.geometry.channelDepth / ny);
+        const cx = task.geometry.channelWidth * 0.55;
+        const cy = task.geometry.channelDepth * 0.5;
+        const r = task.geometry.channelWidth * 0.12;
+        const dist = Math.sqrt(Math.pow(x - cx, 2) + Math.pow(y - cy, 2));
+        const phase = dist < r ? 1.0 : 0.0;
+        content += phase.toFixed(4) + '\n';
+      }
+    }
+    return content;
+  };
+
+  const generateTaskTecplot = (task: any): string => {
+    let content = `TITLE = "MicroFlow CFD - ${task.name}"\n`;
+    content += `VARIABLES = "X" "Y" "Phase" "U" "V" "P"\n`;
+    content += `ZONE T="${task.geometry.type}" I=80 J=40 K=1 F=POINT\n`;
+    content += `DT=(SINGLE SINGLE SINGLE SINGLE SINGLE SINGLE)\n`;
+    for (let j = 0; j < 40; j++) {
+      for (let i = 0; i < 80; i++) {
+        const x = (i * task.geometry.channelWidth) / 80;
+        const y = (j * task.geometry.channelDepth) / 40;
+        const cx = task.geometry.channelWidth * 0.55;
+        const cy = task.geometry.channelDepth * 0.5;
+        const r = task.geometry.channelWidth * 0.12;
+        const dist = Math.sqrt(Math.pow(x - cx, 2) + Math.pow(y - cy, 2));
+        const phase = dist < r ? 1.0 : 0.0;
+        const u = 0.028 + 0.005 * Math.sin(i / 10);
+        const v = 0.001 * Math.cos(j / 5);
+        const p = 50 + 5 * Math.sin(i / 20);
+        content += `${x.toFixed(4)} ${y.toFixed(4)} ${phase.toFixed(4)} ${u.toFixed(6)} ${v.toFixed(6)} ${p.toFixed(3)}\n`;
+      }
+    }
+    return content;
+  };
+
   const handleExport = () => {
     const taskList = filtered.filter(t => selectedTasks.includes(t.id));
     if (taskList.length === 0) return;
     setExporting(true);
     setProgress(0);
+    const timestamp = new Date().toISOString().slice(0, 10);
+
+    if (taskList.length === 1) {
+      const task = taskList[0];
+      const geoLabel = task.geometry.type;
+      const taskName = safeFilename(task.name).slice(0, 40);
+      setTimeout(() => {
+        let content = '';
+        let ext = '';
+        let mime = '';
+        if (format === 'csv') {
+          content = generateCSV(taskList);
+          ext = '.csv';
+          mime = 'text/csv';
+        } else if (format === 'json') {
+          content = generateJSON(taskList);
+          ext = '.json';
+          mime = 'application/json';
+        } else if (format === 'vtk') {
+          content = generateTaskVTK(task);
+          ext = '.vtk';
+          mime = 'text/plain';
+        } else {
+          content = generateTaskTecplot(task);
+          ext = '.plt';
+          mime = 'text/plain';
+        }
+        const filename = `${geoLabel}_${taskName}_${timestamp}${ext}`;
+        downloadFile(content, filename, mime);
+        setProgress(100);
+        setTimeout(() => {
+          setExporting(false);
+          setProgress(0);
+        }, 600);
+      }, 500);
+      return;
+    }
+
     let current = 0;
     const total = taskList.length;
-    const id = setInterval(() => {
+    const timer = setInterval(() => {
       current++;
       const pct = Math.min(100, Math.round((current / total) * 100));
       setProgress(pct);
       if (current >= total) {
-        clearInterval(id);
+        clearInterval(timer);
         setTimeout(() => {
-          const timestamp = new Date().toISOString().slice(0, 10);
-          const extMap: Record<ExportFormat, { gen: (tl: any) => string; mime: string; ext: string }> = {
-            csv: { gen: generateCSV, mime: 'text/csv', ext: '.csv' },
-            json: { gen: generateJSON, mime: 'application/json', ext: '.json' },
-            vtk: { gen: generateVTK, mime: 'text/plain', ext: '.vtk' },
-            tecplot: { gen: generateTecplot, mime: 'text/plain', ext: '.plt' },
-          };
-          const cfg = extMap[format];
-          const content = cfg.gen(taskList);
-          downloadFile(content, `microflow_export_${timestamp}${cfg.ext}`, cfg.mime);
+          if (format === 'csv') {
+            const content = generateCSV(taskList);
+            downloadFile(content, `microflow_batch_${timestamp}_${taskList.length}tasks.csv`, 'text/csv');
+          } else if (format === 'json') {
+            const content = generateJSON(taskList);
+            downloadFile(content, `microflow_batch_${timestamp}_${taskList.length}tasks.json`, 'application/json');
+          } else if (format === 'vtk') {
+            taskList.forEach((task, idx) => {
+              setTimeout(() => {
+                const content = generateTaskVTK(task);
+                const taskName = safeFilename(task.name).slice(0, 30);
+                downloadFile(content, `${String(idx + 1).padStart(2, '0')}_${taskName}.vtk`, 'text/plain');
+              }, idx * 200);
+            });
+          } else {
+            taskList.forEach((task, idx) => {
+              setTimeout(() => {
+                const content = generateTaskTecplot(task);
+                const taskName = safeFilename(task.name).slice(0, 30);
+                downloadFile(content, `${String(idx + 1).padStart(2, '0')}_${taskName}.plt`, 'text/plain');
+              }, idx * 200);
+            });
+          }
           setExporting(false);
           setProgress(0);
         }, 600);
       }
-    }, 200);
+    }, 150);
   };
 
   const formats: { key: ExportFormat; label: string; icon: any; desc: string; ext: string }[] = [

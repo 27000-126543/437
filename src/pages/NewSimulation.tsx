@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/ui';
 import { useAppStore } from '@/store/appStore';
@@ -17,9 +17,15 @@ import {
   Activity,
   Gauge,
   Zap,
+  Clock,
+  HardDrive,
+  UploadCloud,
+  Tag,
+  FileText,
+  History,
 } from 'lucide-react';
 import Droplet3DView from '@/components/Droplet3DView';
-import { GEOMETRY_META, type GeometryType } from '@/types';
+import { GEOMETRY_META, type GeometryType, type GeometryConfig } from '@/types';
 import { clsx } from 'clsx';
 
 const STEPS = [
@@ -32,7 +38,7 @@ const STEPS = [
 
 export default function NewSimulation() {
   const navigate = useNavigate();
-  const { createTask, geometries, fluidPresets, updateTaskProgress } = useAppStore();
+  const { createTask, geometries, geometryAssets, recentGeometryIds, fluidPresets, updateTaskProgress, addUploadedGeometry } = useAppStore();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState({
     taskName: '',
@@ -40,6 +46,8 @@ export default function NewSimulation() {
     geometryType: 'flow-focusing' as GeometryType,
     channelWidth: 80,
     channelDepth: 40,
+    geometryNote: '',
+    geometrySource: 'builtin' as 'builtin' | 'uploaded',
     interfacialTension: 12.5,
     continuousViscosity: 8.5,
     dispersedViscosity: 2.1,
@@ -55,8 +63,20 @@ export default function NewSimulation() {
     uploadedFileName: '',
   });
   const [dragOver, setDragOver] = useState(false);
+  const [assetTab, setAssetTab] = useState<'recent' | 'builtin' | 'uploaded'>('recent');
+  const [selectedAsset, setSelectedAsset] = useState<GeometryConfig | null>(null);
 
   const setField = (k: any, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const selectGeometry = (geo: GeometryConfig) => {
+    setSelectedAsset(geo);
+    setField('geometryId', geo.id);
+    setField('geometryType', geo.type);
+    setField('channelWidth', geo.channelWidth);
+    setField('channelDepth', geo.channelDepth);
+    setField('geometrySource', geo.source);
+    setField('geometryNote', geo.note || '');
+  };
 
   const canProceed = () => {
     if (step === 0) return !!(form.geometryId || form.uploadedFileName);
@@ -81,44 +101,62 @@ export default function NewSimulation() {
     return form.geometryType;
   };
 
+  const handleUploadedFile = (f: File) => {
+    setField('uploadedFile', f);
+    setField('uploadedFileName', f.name);
+    setField('geometrySource', 'uploaded');
+    const inferredType = inferGeometryType(f.name);
+    setField('geometryType', inferredType);
+    const existingGeo = geometryAssets.find(g => g.originalFileName === f.name && g.source === 'uploaded');
+    if (existingGeo) {
+      selectGeometry(existingGeo);
+    } else {
+      const defaultGeo = geometries.find(x => x.type === inferredType);
+      if (defaultGeo) {
+        setField('channelWidth', defaultGeo.channelWidth);
+        setField('channelDepth', defaultGeo.channelDepth);
+      }
+      const newGeo = addUploadedGeometry({
+        fileName: f.name,
+        originalFileName: f.name,
+        type: inferredType,
+        channelWidth: form.channelWidth || 80,
+        channelDepth: form.channelDepth || 40,
+        structure: `用户上传 ${GEOMETRY_META[inferredType].label} 结构`,
+      });
+      selectGeometry(newGeo);
+      setAssetTab('uploaded');
+    }
+  };
+
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
     const f = e.dataTransfer.files?.[0];
-    if (f) {
-      setField('uploadedFile', f);
-      setField('uploadedFileName', f.name);
-      const inferredType = inferGeometryType(f.name);
-      setField('geometryType', inferredType);
-      const g = geometries.find(x => x.type === inferredType);
-      if (g) {
-        setField('geometryId', g.id);
-        setField('channelWidth', g.channelWidth);
-        setField('channelDepth', g.channelDepth);
-      }
-    }
+    if (f) handleUploadedFile(f);
   };
 
   const onFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) {
-      setField('uploadedFile', f);
-      setField('uploadedFileName', f.name);
-      const inferredType = inferGeometryType(f.name);
-      setField('geometryType', inferredType);
-      const g = geometries.find(x => x.type === inferredType);
-      if (g) {
-        setField('geometryId', g.id);
-        setField('channelWidth', g.channelWidth);
-        setField('channelDepth', g.channelDepth);
-      }
-    }
+    if (f) handleUploadedFile(f);
   };
 
   const submit = () => {
+    const baseGeo = selectedAsset || geometryAssets.find(g => g.id === form.geometryId);
+    const geometryData: Partial<GeometryConfig> = {
+      ...(baseGeo || {}),
+      id: form.geometryId || baseGeo?.id,
+      type: form.geometryType,
+      fileName: form.uploadedFileName || baseGeo?.fileName || 'geometry.stl',
+      channelWidth: form.channelWidth,
+      channelDepth: form.channelDepth,
+      source: form.geometrySource as 'builtin' | 'uploaded',
+      note: form.geometryNote,
+      originalFileName: form.uploadedFileName || baseGeo?.originalFileName,
+    };
     const task = createTask({
       name: form.taskName || `${GEOMETRY_META[form.geometryType].label} - 新模拟任务`,
-      geometryId: form.geometryId || geometries[0].id,
+      geometry: geometryData,
       fluidParams: {
         interfacialTension: form.interfacialTension,
         continuousViscosity: form.continuousViscosity,
@@ -129,7 +167,6 @@ export default function NewSimulation() {
         surfaceWettability: form.surfaceWettability,
       },
     });
-    // 自动推进前两个阶段以演示状态流转
     setTimeout(() => updateTaskProgress(task.id), 1200);
     setTimeout(() => updateTaskProgress(task.id), 2400);
     navigate(`/tasks/${task.id}/monitor`);
@@ -138,6 +175,26 @@ export default function NewSimulation() {
   const estimatedCells = Math.round(
     (form.channelWidth * form.channelDepth * 500) / Math.pow(2, form.refinementLevel) * 60,
   );
+
+  const recentGeometries = useMemo(() => {
+    return recentGeometryIds
+      .map(id => geometryAssets.find(g => g.id === id))
+      .filter(Boolean) as GeometryConfig[];
+  }, [recentGeometryIds, geometryAssets]);
+
+  const builtinGeometries = useMemo(() => {
+    return geometryAssets.filter(g => g.source === 'builtin');
+  }, [geometryAssets]);
+
+  const uploadedGeometries = useMemo(() => {
+    return geometryAssets.filter(g => g.source === 'uploaded');
+  }, [geometryAssets]);
+
+  const displayedGeometries = useMemo(() => {
+    if (assetTab === 'recent') return recentGeometries;
+    if (assetTab === 'builtin') return builtinGeometries;
+    return uploadedGeometries;
+  }, [assetTab, recentGeometries, builtinGeometries, uploadedGeometries]);
 
   return (
     <div className="min-h-full max-w-7xl mx-auto">
@@ -201,14 +258,14 @@ export default function NewSimulation() {
                 <Grid3x3 size={18} className="text-tech-cyan" />
                 微流道几何构型
               </h2>
-              <p className="text-sm text-neut-1 mb-5">上传几何文件或选择内置构型模板</p>
+              <p className="text-sm text-neut-1 mb-5">上传几何文件或从资产库中选择</p>
 
               <div
                 onDragOver={e => { e.preventDefault(); setDragOver(true); }}
                 onDragLeave={() => setDragOver(false)}
                 onDrop={onDrop}
                 className={clsx(
-                  'border-2 border-dashed rounded-xl p-8 text-center transition-all mb-5',
+                  'border-2 border-dashed rounded-xl p-6 text-center transition-all mb-5',
                   dragOver
                     ? 'border-tech-cyan bg-tech-cyan/5'
                     : form.uploadedFileName
@@ -216,72 +273,158 @@ export default function NewSimulation() {
                       : 'border-surface hover:border-tech-cyan/50 hover:bg-surface/20',
                 )}
               >
-                {form.uploadedFileName ? (
-                  <div className="flex items-center justify-center gap-3">
-                    <div className="w-10 h-10 rounded-md bg-data-green/20 border border-data-green/50 flex items-center justify-center">
-                      <FileUp size={18} className="text-data-green" />
-                    </div>
-                    <div className="text-left">
-                      <div className="text-sm text-neut-2 font-medium">{form.uploadedFileName}</div>
-                      <div className="text-[11px] text-neut-1 mt-0.5">文件已就绪，可进行参数配置</div>
+                {form.uploadedFileName && selectedAsset ? (
+                  <div className="flex items-center justify-between gap-3 px-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-md bg-data-green/20 border border-data-green/50 flex items-center justify-center">
+                        <FileUp size={18} className="text-data-green" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-sm text-neut-2 font-medium">{selectedAsset.originalFileName || selectedAsset.fileName}</div>
+                        <div className="text-[11px] text-neut-1 mt-0.5 flex items-center gap-2">
+                          <Tag size={10} /> v{selectedAsset.version} · 已保存到资产库 · {GEOMETRY_META[selectedAsset.type].label}
+                        </div>
+                      </div>
                     </div>
                     <button
-                      onClick={() => { setField('uploadedFile', null); setField('uploadedFileName', ''); }}
-                      className="ml-4 p-1.5 rounded hover:bg-alert-red/10 text-neut-1 hover:text-alert-red"
+                      onClick={() => { setField('uploadedFile', null); setField('uploadedFileName', ''); setSelectedAsset(null); setField('geometryId', ''); }}
+                      className="p-1.5 rounded hover:bg-alert-red/10 text-neut-1 hover:text-alert-red"
                     >
                       <X size={14} />
                     </button>
                   </div>
                 ) : (
                   <>
-                    <Upload size={36} className="mx-auto text-neut-1 mb-3" />
+                    <UploadCloud size={32} className="mx-auto text-neut-1 mb-2" />
                     <div className="text-sm text-neut-2 mb-1">拖放几何文件到此区域，或</div>
                     <label className="inline-block">
                       <input type="file" accept=".stl,.step,.iges,.stp,.obj" onChange={onFileSelect} className="hidden" />
-                      <span className="text-sm text-tech-cyan cursor-pointer hover:underline">点击选择文件</span>
+                      <span className="text-sm text-tech-cyan cursor-pointer hover:underline">点击选择文件上传</span>
                     </label>
-                    <div className="text-[11px] text-neut-1 mt-2">支持 STL / STEP / IGES / OBJ · 最大 120MB</div>
+                    <div className="text-[11px] text-neut-1 mt-2">支持 STL / STEP / IGES / OBJ · 自动保存到资产库</div>
                   </>
                 )}
               </div>
 
-              <div className="text-xs text-neut-1 mb-2 uppercase tracking-wider">或选择内置构型</div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {(Object.keys(GEOMETRY_META) as GeometryType[]).map(k => {
-                  const active = form.geometryType === k;
+              <div className="flex items-center gap-1 mb-3 border-b border-surface/60">
+                {[
+                  { key: 'recent', label: '最近使用', icon: History, count: recentGeometries.length },
+                  { key: 'builtin', label: '内置模板', icon: HardDrive, count: builtinGeometries.length },
+                  { key: 'uploaded', label: '已上传', icon: Upload, count: uploadedGeometries.length },
+                ].map(tab => {
+                  const Icon = tab.icon;
+                  const active = assetTab === tab.key;
                   return (
                     <button
-                      key={k}
-                      onClick={() => {
-                        setField('geometryType', k);
-                        const g = geometries.find(x => x.type === k);
-                        if (g) {
-                          setField('geometryId', g.id);
-                          setField('channelWidth', g.channelWidth);
-                          setField('channelDepth', g.channelDepth);
-                        }
-                      }}
+                      key={tab.key}
+                      onClick={() => setAssetTab(tab.key as any)}
                       className={clsx(
-                        'p-3 rounded-lg border text-left transition-all relative overflow-hidden',
+                        'px-3 py-2 text-xs flex items-center gap-1.5 border-b-2 -mb-px transition-all',
                         active
-                          ? 'border-tech-cyan/60 bg-tech-cyan/10 shadow-glow-cyan'
-                          : 'border-surface/60 bg-deep-space/40 hover:border-tech-cyan/30',
+                          ? 'border-tech-cyan text-tech-cyan'
+                          : 'border-transparent text-neut-1 hover:text-neut-2',
                       )}
                     >
-                      {active && (
-                        <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-tech-cyan flex items-center justify-center">
-                          <Check size={10} className="text-deep-space" />
-                        </div>
-                      )}
-                      <div className="h-16 rounded-md bg-mid-space/60 mb-2 overflow-hidden">
-                        <Droplet3DView geometryType={k} channelWidth={60} animate={false} />
-                      </div>
-                      <div className="text-xs font-medium text-neut-2">{GEOMETRY_META[k].label}</div>
-                      <div className="text-[10px] text-neut-1 mt-0.5 line-clamp-2">{GEOMETRY_META[k].desc}</div>
+                      <Icon size={13} />
+                      {tab.label}
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface/60">{tab.count}</span>
                     </button>
                   );
                 })}
               </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5 max-h-[280px] overflow-y-auto pr-1">
+                {displayedGeometries.length === 0 ? (
+                  <div className="col-span-full text-center py-8 text-neut-1 text-xs">
+                    {assetTab === 'recent' ? '暂无最近使用的几何' : assetTab === 'uploaded' ? '暂无上传的几何文件' : ''}
+                  </div>
+                ) : (
+                  displayedGeometries.map(geo => {
+                    const active = form.geometryId === geo.id;
+                    return (
+                      <button
+                        key={geo.id}
+                        onClick={() => selectGeometry(geo)}
+                        className={clsx(
+                          'p-3 rounded-lg border text-left transition-all relative overflow-hidden group',
+                          active
+                            ? 'border-tech-cyan/60 bg-tech-cyan/10 shadow-glow-cyan'
+                            : 'border-surface/60 bg-deep-space/40 hover:border-tech-cyan/30 hover:bg-surface/30',
+                        )}
+                      >
+                        {active && (
+                          <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-tech-cyan flex items-center justify-center z-10">
+                            <Check size={10} className="text-deep-space" />
+                          </div>
+                        )}
+                        <div className="absolute top-2 left-2 z-10">
+                          <span className={clsx(
+                            'text-[9px] px-1.5 py-0.5 rounded-full font-mono',
+                            geo.source === 'builtin'
+                              ? 'bg-surface/80 text-neut-2'
+                              : 'bg-purple-500/20 text-purple-300 border border-purple-500/40',
+                          )}>
+                            {geo.source === 'builtin' ? '内置' : `v${geo.version}`}
+                          </span>
+                        </div>
+                        <div className="h-14 rounded-md bg-mid-space/60 mb-2 overflow-hidden mt-4">
+                          <Droplet3DView geometryType={geo.type} channelWidth={50} animate={false} />
+                        </div>
+                        <div className="text-xs font-medium text-neut-2 truncate" title={geo.fileName}>
+                          {geo.source === 'uploaded' ? geo.originalFileName : geo.fileName}
+                        </div>
+                        <div className="text-[10px] text-neut-1 mt-0.5 flex items-center gap-1">
+                          <span>{GEOMETRY_META[geo.type].label}</span>
+                          <span className="text-surface">·</span>
+                          <span>{geo.channelWidth}μm</span>
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+
+              {selectedAsset && (
+                <div className="p-4 rounded-lg border border-tech-cyan/30 bg-tech-cyan/5">
+                  <div className="text-xs text-tech-cyan font-medium mb-2 flex items-center gap-1.5">
+                    <Info size={13} />
+                    当前选中几何
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <div className="text-neut-1 text-[10px] mb-0.5">来源</div>
+                      <div className="text-neut-2">
+                        {selectedAsset.source === 'builtin' ? '内置模板' : '用户上传'}
+                        {selectedAsset.version && ` · v${selectedAsset.version}`}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-neut-1 text-[10px] mb-0.5">文件名</div>
+                      <div className="text-neut-2 truncate" title={selectedAsset.fileName}>
+                        {selectedAsset.originalFileName || selectedAsset.fileName}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-neut-1 text-[10px] mb-0.5">通道宽度</div>
+                      <div className="text-neut-2 font-mono">{selectedAsset.channelWidth} μm</div>
+                    </div>
+                    <div>
+                      <div className="text-neut-1 text-[10px] mb-0.5">通道深度</div>
+                      <div className="text-neut-2 font-mono">{selectedAsset.channelDepth} μm</div>
+                    </div>
+                    <div className="col-span-2">
+                      <div className="text-neut-1 text-[10px] mb-0.5">结构描述</div>
+                      <div className="text-neut-2 text-[11px]">{selectedAsset.structure}</div>
+                    </div>
+                    {selectedAsset.note && (
+                      <div className="col-span-2">
+                        <div className="text-neut-1 text-[10px] mb-0.5">备注</div>
+                        <div className="text-neut-2 text-[11px]">{selectedAsset.note}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4 mt-5">
                 <div>

@@ -21,6 +21,7 @@ import {
   ThermometerSun,
   Droplets,
   Zap,
+  Sparkles,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 
@@ -372,12 +373,31 @@ export default function RealtimeMonitor() {
           <div className="space-y-2 text-xs">
             <div className="flex justify-between py-1 border-b border-surface/40">
               <span className="text-neut-1">几何构型</span>
-              <span className="text-neut-2 font-mono">{task.geometry.fileName}</span>
+              <span className="text-neut-2 font-mono text-right max-w-[60%] truncate" title={task.geometry.fileName}>
+                {task.geometry.originalFileName || task.geometry.fileName}
+              </span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-surface/40">
+              <span className="text-neut-1">几何来源</span>
+              <span className={clsx('font-mono text-right', task.geometry.source === 'builtin' ? 'text-neut-2' : 'text-purple-300')}>
+                {task.geometry.source === 'builtin' ? '内置模板' : `上传 v${task.geometry.version || 1}`}
+              </span>
             </div>
             <div className="flex justify-between py-1 border-b border-surface/40">
               <span className="text-neut-1">通道尺寸</span>
               <span className="text-neut-2 font-mono">{task.geometry.channelWidth}×{task.geometry.channelDepth}μm</span>
             </div>
+            {task.recommendationSource && (
+              <div className="p-2 rounded-md bg-purple-500/10 border border-purple-500/30 mb-2">
+                <div className="text-[10px] text-purple-300 mb-1 flex items-center gap-1">
+                  <Sparkles size={10} /> AI推荐来源
+                </div>
+                <div className="text-[11px] text-neut-2 space-y-0.5">
+                  <div>预测 CV: <span className="text-data-green font-mono">{task.recommendationSource.predictedCv.toFixed(2)}%</span> · 频率: <span className="font-mono">{task.recommendationSource.predictedFrequency.toFixed(0)}Hz</span></div>
+                  <div>置信度: <span className="text-tech-cyan font-mono">{(task.recommendationSource.confidence * 100).toFixed(0)}%</span></div>
+                </div>
+              </div>
+            )}
             <div className="flex justify-between py-1 border-b border-surface/40">
               <span className="text-neut-1">流速比 Qc/Qd</span>
               <span className="text-tech-cyan font-mono">{task.fluidParams.flowRateRatio.toFixed(1)}:1</span>

@@ -18,6 +18,8 @@ interface AppState {
   recommendations: Recommendation[];
   dailyStats: DailyStats[];
   geometries: GeometryConfig[];
+  geometryAssets: GeometryConfig[];
+  recentGeometryIds: string[];
   fluidPresets: FluidParams[];
   currentRole: 'microfluidic_engineer' | 'fluid_engineer' | 'project_manager' | 'chief_scientist';
   currentUser: string;
@@ -28,10 +30,25 @@ interface AppState {
   setFilters: (f: Partial<AppState['filters']>) => void;
   setCurrentRole: (r: AppState['currentRole']) => void;
 
+  addUploadedGeometry: (input: {
+    fileName: string;
+    originalFileName: string;
+    type: GeometryConfig['type'];
+    channelWidth: number;
+    channelDepth: number;
+    structure?: string;
+    note?: string;
+    parentId?: string;
+  }) => GeometryConfig;
+
+  addRecentGeometry: (id: string) => void;
+
   createTask: (input: {
     name: string;
-    geometryId: string;
+    geometryId?: string;
+    geometry?: Partial<GeometryConfig>;
     fluidParams: Partial<FluidParams>;
+    recommendationSource?: SimulationTask['recommendationSource'];
   }) => SimulationTask;
 
   updateTaskProgress: (taskId: string) => void;
@@ -75,6 +92,8 @@ export const useAppStore = create<AppState>((set, get) => {
     recommendations: generateRecommendations(),
     dailyStats: generateDailyStats(),
     geometries: GEOMETRY_LIST,
+    geometryAssets: [...GEOMETRY_LIST],
+    recentGeometryIds: ['geo-001', 'geo-002'],
     fluidPresets: FLUID_PRESETS,
     currentRole: 'microfluidic_engineer',
     currentUser: '陈工',
@@ -85,8 +104,53 @@ export const useAppStore = create<AppState>((set, get) => {
     setFilters: f => set(state => ({ filters: { ...state.filters, ...f } })),
     setCurrentRole: r => set({ currentRole: r }),
 
+    addUploadedGeometry: input => {
+      const existingSameName = get().geometryAssets.filter(
+        g => g.originalFileName === input.originalFileName,
+      );
+      const version = existingSameName.length + 1;
+      const newGeo: GeometryConfig = {
+        id: 'geo-up-' + genId(),
+        type: input.type,
+        fileName: input.fileName,
+        channelWidth: input.channelWidth,
+        channelDepth: input.channelDepth,
+        structure: input.structure || '用户上传几何结构',
+        source: 'uploaded',
+        version,
+        originalFileName: input.originalFileName,
+        note: input.note,
+        uploadedBy: get().currentUser,
+        uploadedAt: new Date().toISOString(),
+        parentId: input.parentId,
+        consecutiveFailures: 0,
+      };
+      set(state => ({
+        geometryAssets: [newGeo, ...state.geometryAssets],
+        geometries: [newGeo, ...state.geometries],
+      }));
+      return newGeo;
+    },
+
+    addRecentGeometry: id => {
+      set(state => ({
+        recentGeometryIds: [id, ...state.recentGeometryIds.filter(x => x !== id)].slice(0, 5),
+      }));
+    },
+
     createTask: input => {
-      const geo = get().geometries.find(g => g.id === input.geometryId) ?? get().geometries[0];
+      let geo: GeometryConfig;
+      if (input.geometry) {
+        geo = {
+          ...get().geometries[0],
+          ...input.geometry,
+          id: input.geometry.id || 'geo-up-' + genId(),
+        } as GeometryConfig;
+      } else if (input.geometryId) {
+        geo = get().geometries.find(g => g.id === input.geometryId) ?? get().geometries[0];
+      } else {
+        geo = get().geometries[0];
+      }
       const preset = get().fluidPresets[0];
       const fluid: FluidParams = {
         ...preset,
@@ -109,8 +173,12 @@ export const useAppStore = create<AppState>((set, get) => {
         updatedAt: new Date().toISOString(),
         currentStage: 'none',
         pushedToLithography: false,
+        recommendationSource: input.recommendationSource,
       };
       set(state => ({ tasks: [task, ...state.tasks] }));
+      if (geo.id) {
+        get().addRecentGeometry(geo.id);
+      }
       return task;
     },
 

@@ -16,6 +16,7 @@ import {
   Grid3x3,
   Droplets,
   Activity,
+  Sparkles,
 } from 'lucide-react';
 import {
   STATUS_META,
@@ -214,8 +215,23 @@ export default function TaskCenter() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-xs text-neut-2">{GEOMETRY_META[t.geometry.type]?.label}</div>
-                      <div className="text-[11px] text-neut-1 font-mono mt-0.5">{t.geometry.channelWidth}μm / {t.geometry.channelDepth}μm</div>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className="text-xs text-neut-2">{GEOMETRY_META[t.geometry.type]?.label}</span>
+                        {t.geometry.source === 'uploaded' && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                            上传 v{t.geometry.version || 1}
+                          </span>
+                        )}
+                        {t.recommendationSource && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-tech-cyan/20 text-tech-cyan border border-tech-cyan/40 flex items-center gap-0.5">
+                            <Sparkles size={9} /> AI
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-neut-1 font-mono mt-0.5 truncate max-w-[200px]" title={t.geometry.originalFileName || t.geometry.fileName}>
+                        {(t.geometry.originalFileName || t.geometry.fileName).slice(0, 28)}{((t.geometry.originalFileName || t.geometry.fileName).length > 28 ? '...' : '')}
+                      </div>
+                      <div className="text-[11px] text-neut-1 font-mono">{t.geometry.channelWidth}μm / {t.geometry.channelDepth}μm</div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-xs font-mono text-neut-2">{t.fluidParams.flowRateRatio.toFixed(1)} : 1</div>

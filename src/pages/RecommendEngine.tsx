@@ -23,8 +23,13 @@ import {
   BrainCircuit,
   Cpu,
   Award,
+  X,
+  Check,
+  Info,
+  Edit3,
+  ArrowRight,
 } from 'lucide-react';
-import { GEOMETRY_META, type GeometryType } from '@/types';
+import { GEOMETRY_META, type GeometryType, type Recommendation } from '@/types';
 import { clsx } from 'clsx';
 
 export default function RecommendEngine() {
@@ -34,6 +39,13 @@ export default function RecommendEngine() {
   const [selectedRec, setSelectedRec] = useState(0);
   const [showF, setShowF] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [confirmForm, setConfirmForm] = useState({
+    taskName: '',
+    continuousVelocity: 0,
+    dispersedPressure: 0,
+    flowRateRatio: 0,
+  });
 
   const filteredRecs =
     selectedGeo === 'all'
@@ -65,25 +77,45 @@ export default function RecommendEngine() {
     return { bin, count: Math.round(Math.exp(-Math.pow((bin - 25) / 5, 2)) * 200) };
   });
 
-  const applyRecommendation = () => {
+  const openConfirm = () => {
+    if (!rec) return;
+    setConfirmForm({
+      taskName: `AI推荐方案 - ${rec.geometryLabel} - Qc=${rec.optimalContinuousVelocity.toFixed(3)}m/s`,
+      continuousVelocity: rec.optimalContinuousVelocity,
+      dispersedPressure: rec.optimalDispersedPressure,
+      flowRateRatio: rec.optimalFlowRateRatio,
+    });
+    setShowConfirm(true);
+  };
+
+  const confirmAndCreate = () => {
     if (!rec) return;
     setApplying(true);
     setTimeout(() => {
       const geo = geometries.find(g => g.type === rec.geometryType);
-      const geometryId = geo ? geo.id : geometries[0].id;
       const t = createTask({
-        name: `AI推荐方案 - ${rec.geometryLabel} - Qc=${rec.optimalContinuousVelocity.toFixed(3)}m/s`,
-        geometryId,
+        name: confirmForm.taskName,
+        geometryId: geo?.id,
+        geometry: geo ? { ...geo } : undefined,
         fluidParams: {
-          continuousVelocity: rec.optimalContinuousVelocity,
-          dispersedPressure: rec.optimalDispersedPressure,
-          flowRateRatio: rec.optimalFlowRateRatio,
+          continuousVelocity: confirmForm.continuousVelocity,
+          dispersedPressure: confirmForm.dispersedPressure,
+          flowRateRatio: confirmForm.flowRateRatio,
           interfacialTension: 12.5,
           continuousViscosity: 8.5,
           dispersedViscosity: 2.1,
           surfaceWettability: 75,
         },
+        recommendationSource: {
+          recommendationId: rec.id,
+          geometryLabel: rec.geometryLabel,
+          predictedCv: rec.predictedCv,
+          predictedFrequency: rec.predictedFrequency,
+          confidence: rec.confidence,
+        },
       });
+      setShowConfirm(false);
+      setApplying(false);
       navigate(`/tasks/${t.id}/monitor`);
     }, 800);
   };
@@ -103,11 +135,11 @@ export default function RecommendEngine() {
               <Filter size={13} /> 筛选 <ChevronDown size={12} />
             </button>
             <button
-              onClick={applyRecommendation}
-              disabled={applying}
+              onClick={openConfirm}
+              disabled={!rec}
               className="btn-primary text-xs flex items-center gap-1.5"
             >
-              <Sparkles size={13} /> {applying ? '生成中...' : '应用推荐方案'}
+              <Sparkles size={13} /> 应用推荐方案
             </button>
           </>
         }
@@ -254,7 +286,7 @@ export default function RecommendEngine() {
                     </p>
                   </div>
                   <button
-                    onClick={applyRecommendation}
+                    onClick={openConfirm}
                     className="btn-primary text-sm flex items-center gap-1.5"
                   >
                     <Play size={14} /> 立即应用
@@ -392,6 +424,150 @@ export default function RecommendEngine() {
           )}
         </div>
       </div>
+
+      {showConfirm && rec && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-deep-space/80 backdrop-blur-sm">
+          <div className="glass-panel w-full max-w-xl mx-4 p-6 relative animate-in fade-in zoom-in duration-200">
+            <button
+              onClick={() => setShowConfirm(false)}
+              className="absolute top-4 right-4 p-1.5 rounded hover:bg-surface/40 text-neut-1 hover:text-neut-2"
+            >
+              <X size={16} />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-11 h-11 rounded-full bg-tech-cyan/15 border border-tech-cyan/40 flex items-center justify-center">
+                <Sparkles size={20} className="text-tech-cyan" />
+              </div>
+              <div>
+                <h3 className="heading-display text-base text-neut-2">应用推荐方案</h3>
+                <p className="text-xs text-neut-1 mt-0.5">确认参数后将创建新模拟任务</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="label-text">任务名称</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={confirmForm.taskName}
+                    onChange={e => setConfirmForm(f => ({ ...f, taskName: e.target.value }))}
+                    className="input-field flex-1 pr-9"
+                  />
+                  <button
+                    onClick={() => setConfirmForm(f => ({ ...f, taskName: `AI推荐方案 - ${rec.geometryLabel} - Qc=${rec.optimalContinuousVelocity.toFixed(3)}m/s` }))}
+                    className="px-2 text-tech-cyan hover:bg-tech-cyan/10 rounded text-xs"
+                    title="重置为推荐名称"
+                  >
+                    <Edit3 size={14} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg border border-tech-cyan/30 bg-tech-cyan/5">
+                <div className="text-xs text-tech-cyan font-medium mb-2 flex items-center gap-1.5">
+                  <Info size={13} />
+                  推荐构型信息
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <div className="text-neut-1 text-[10px] mb-0.5">几何构型</div>
+                    <div className="text-neut-2">{rec.geometryLabel}</div>
+                  </div>
+                  <div>
+                    <div className="text-neut-1 text-[10px] mb-0.5">构型类型</div>
+                    <div className="text-neut-2">{GEOMETRY_META[rec.geometryType].label}</div>
+                  </div>
+                  <div>
+                    <div className="text-neut-1 text-[10px] mb-0.5">预测 CV</div>
+                    <div className="text-neut-2 font-mono text-data-green">{rec.predictedCv.toFixed(2)} %</div>
+                  </div>
+                  <div>
+                    <div className="text-neut-1 text-[10px] mb-0.5">预测生成频率</div>
+                    <div className="text-neut-2 font-mono">{rec.predictedFrequency.toFixed(0)} Hz</div>
+                  </div>
+                  <div>
+                    <div className="text-neut-1 text-[10px] mb-0.5">置信度</div>
+                    <div className="text-neut-2 font-mono">{(rec.confidence * 100).toFixed(0)} %</div>
+                  </div>
+                  <div>
+                    <div className="text-neut-1 text-[10px] mb-0.5">来源任务数</div>
+                    <div className="text-neut-2 font-mono">{rec.sourceTaskCount} 个</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg border border-surface/60 bg-deep-space/40">
+                <div className="text-xs text-neut-2 font-medium mb-3 flex items-center gap-1.5">
+                  <Zap size={13} className="text-data-green" />
+                  推荐参数（可微调）
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="label-text !text-[10px]">连续相流速 (m/s)</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={confirmForm.continuousVelocity}
+                      onChange={e => setConfirmForm(f => ({ ...f, continuousVelocity: +e.target.value }))}
+                      className="input-field text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="label-text !text-[10px]">分散相压力 (kPa)</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={confirmForm.dispersedPressure}
+                      onChange={e => setConfirmForm(f => ({ ...f, dispersedPressure: +e.target.value }))}
+                      className="input-field text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="label-text !text-[10px]">流速比 Qc/Qd</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={confirmForm.flowRateRatio}
+                      onChange={e => setConfirmForm(f => ({ ...f, flowRateRatio: +e.target.value }))}
+                      className="input-field text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 text-[11px] text-neut-1">
+                <Info size={12} className="text-alert-orange shrink-0" />
+                <span>创建后任务将自动追溯此推荐来源，报告页可查看推荐参数对比</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="btn-secondary text-sm flex-1"
+                disabled={applying}
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmAndCreate}
+                disabled={applying || !confirmForm.taskName.trim()}
+                className="btn-primary text-sm flex-1 flex items-center justify-center gap-2"
+              >
+                {applying ? (
+                  <>创建中...</>
+                ) : (
+                  <>
+                    创建并开始模拟 <ArrowRight size={14} />
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

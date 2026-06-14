@@ -56,6 +56,8 @@ export default function ReportDetail() {
 
   const stats = task.statistics;
 
+  const safeFilename = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_');
+
   const downloadFile = (content: string, filename: string, mimeType: string) => {
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
@@ -97,7 +99,7 @@ export default function ReportDetail() {
         }
       }
     }
-    downloadFile(content, `phase_field_${task.id}.vtk`, 'text/plain');
+    downloadFile(content, `phasefield_${safeFilename(task.geometry.type)}_${safeFilename(task.name).slice(0, 30)}_${task.id}.vtk`, 'text/plain');
   };
 
   const downloadDropletCSV = () => {
@@ -123,7 +125,7 @@ export default function ReportDetail() {
     stats.frequencySeries.forEach(d => {
       content += `${d.time},${d.value.toFixed(3)}\n`;
     });
-    downloadFile(content, `droplet_stats_${task.id}.csv`, 'text/csv');
+    downloadFile(content, `droplet_stats_${safeFilename(task.geometry.type)}_${safeFilename(task.name).slice(0, 30)}_${task.id}.csv`, 'text/csv');
   };
 
   const downloadMesh = () => {
@@ -151,7 +153,7 @@ export default function ReportDetail() {
       content += `${i} 4 2 3 0 ${i} ${i + 1} ${i + 2} ${i + 3}\n`;
     }
     content += '$EndElements\n';
-    downloadFile(content, `mesh_${task.id}.msh`, 'text/plain');
+    downloadFile(content, `mesh_${safeFilename(task.geometry.type)}_${safeFilename(task.name).slice(0, 30)}_${task.id}.msh`, 'text/plain');
   };
 
   const downloadInterfaceAnimation = () => {
@@ -168,7 +170,7 @@ export default function ReportDetail() {
       const r = 15 + Math.sin(t / 5) * 2;
       content += `T+${time.toFixed(1)}s ${dx.toFixed(1)} ${dy.toFixed(1)} ${r.toFixed(2)}\n`;
     }
-    downloadFile(content, `interface_evolution_${task.id}.txt`, 'text/plain');
+    downloadFile(content, `interface_evolution_${safeFilename(task.geometry.type)}_${safeFilename(task.name).slice(0, 30)}_${task.id}.txt`, 'text/plain');
   };
 
   const handlePrint = () => {
@@ -301,7 +303,7 @@ export default function ReportDetail() {
     });
 
     setTimeout(() => {
-      doc.save(`report_${task.id}.pdf`);
+      doc.save(`report_${safeFilename(task.geometry.type)}_${safeFilename(task.name).slice(0, 30)}_${task.id}.pdf`);
       setExporting(false);
     }, 500);
   };
@@ -556,6 +558,8 @@ export default function ReportDetail() {
             <div className="space-y-2 text-xs">
               {[
                 ['几何构型', GEOMETRY_META[task.geometry.type]?.label ?? '—'],
+                ['几何来源', task.geometry.source === 'builtin' ? '内置模板' : `用户上传 v${task.geometry.version || 1}`],
+                ['文件名称', (task.geometry.originalFileName || task.geometry.fileName).slice(0, 20) + ((task.geometry.originalFileName || task.geometry.fileName).length > 20 ? '...' : '')],
                 ['通道尺寸', `${task.geometry.channelWidth}×${task.geometry.channelDepth}μm`],
                 ['界面张力 γ', `${task.fluidParams.interfacialTension} mN/m`],
                 ['流速比 Qc/Qd', `${task.fluidParams.flowRateRatio.toFixed(1)} : 1`],
@@ -567,11 +571,38 @@ export default function ReportDetail() {
               ].map(([k, v], i) => (
                 <div key={i} className="flex justify-between py-1 border-b border-surface/40 last:border-0">
                   <span className="text-neut-1">{k}</span>
-                  <span className="text-neut-2 font-mono">{v}</span>
+                  <span className="text-neut-2 font-mono text-right" title={String(v)}>{v}</span>
                 </div>
               ))}
             </div>
           </div>
+
+          {task.recommendationSource && (
+            <div className="glass-panel p-4 border-purple-500/40 bg-purple-500/5">
+              <h3 className="heading-display text-xs text-purple-300 mb-3 flex items-center gap-1.5">
+                <Sparkles size={12} />
+                AI 推荐来源
+              </h3>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between py-1 border-b border-surface/40">
+                  <span className="text-neut-1">推荐构型</span>
+                  <span className="text-neut-2 font-mono">{task.recommendationSource.geometryLabel}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-surface/40">
+                  <span className="text-neut-1">预测 CV</span>
+                  <span className="text-data-green font-mono">{task.recommendationSource.predictedCv.toFixed(2)} %</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-surface/40">
+                  <span className="text-neut-1">预测频率</span>
+                  <span className="text-neut-2 font-mono">{task.recommendationSource.predictedFrequency.toFixed(0)} Hz</span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-neut-1">置信度</span>
+                  <span className="text-tech-cyan font-mono">{(task.recommendationSource.confidence * 100).toFixed(0)} %</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="glass-panel p-4">
             <h3 className="heading-display text-xs text-neut-2 mb-3">网格信息</h3>
