@@ -59,7 +59,7 @@ export default function NewSimulation() {
   const setField = (k: any, v: any) => setForm(f => ({ ...f, [k]: v }));
 
   const canProceed = () => {
-    if (step === 0) return form.geometryId || form.uploadedFileName || true;
+    if (step === 0) return !!(form.geometryId || form.uploadedFileName);
     if (step === 1)
       return (
         form.interfacialTension > 0 &&
@@ -72,6 +72,15 @@ export default function NewSimulation() {
     return form.taskName.trim().length > 2;
   };
 
+  const inferGeometryType = (fileName: string): GeometryType => {
+    const lower = fileName.toLowerCase();
+    if (lower.includes('t-junction') || lower.includes('t_junction') || lower.includes('t型') || lower.includes('tjunction')) return 'T-junction';
+    if (lower.includes('flow-focusing') || lower.includes('flow_focusing') || lower.includes('流动聚焦') || lower.includes('flowfocusing')) return 'flow-focusing';
+    if (lower.includes('co-flow') || lower.includes('co_flow') || lower.includes('同轴流') || lower.includes('coflow')) return 'co-flow';
+    if (lower.includes('step-emulsification') || lower.includes('step_emulsification') || lower.includes('阶梯乳化') || lower.includes('stepemulsification')) return 'step-emulsification';
+    return form.geometryType;
+  };
+
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
@@ -79,7 +88,14 @@ export default function NewSimulation() {
     if (f) {
       setField('uploadedFile', f);
       setField('uploadedFileName', f.name);
-      setField('geometryId', geometries[0].id);
+      const inferredType = inferGeometryType(f.name);
+      setField('geometryType', inferredType);
+      const g = geometries.find(x => x.type === inferredType);
+      if (g) {
+        setField('geometryId', g.id);
+        setField('channelWidth', g.channelWidth);
+        setField('channelDepth', g.channelDepth);
+      }
     }
   };
 
@@ -88,7 +104,14 @@ export default function NewSimulation() {
     if (f) {
       setField('uploadedFile', f);
       setField('uploadedFileName', f.name);
-      setField('geometryId', geometries[0].id);
+      const inferredType = inferGeometryType(f.name);
+      setField('geometryType', inferredType);
+      const g = geometries.find(x => x.type === inferredType);
+      if (g) {
+        setField('geometryId', g.id);
+        setField('channelWidth', g.channelWidth);
+        setField('channelDepth', g.channelDepth);
+      }
     }
   };
 

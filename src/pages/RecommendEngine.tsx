@@ -29,7 +29,7 @@ import { clsx } from 'clsx';
 
 export default function RecommendEngine() {
   const navigate = useNavigate();
-  const { recommendations, tasks, createTask } = useAppStore();
+  const { recommendations, tasks, createTask, geometries } = useAppStore();
   const [selectedGeo, setSelectedGeo] = useState<GeometryType | 'all'>('all');
   const [selectedRec, setSelectedRec] = useState(0);
   const [showF, setShowF] = useState(false);
@@ -69,13 +69,19 @@ export default function RecommendEngine() {
     if (!rec) return;
     setApplying(true);
     setTimeout(() => {
+      const geo = geometries.find(g => g.type === rec.geometryType);
+      const geometryId = geo ? geo.id : geometries[0].id;
       const t = createTask({
         name: `AI推荐方案 - ${rec.geometryLabel} - Qc=${rec.optimalContinuousVelocity.toFixed(3)}m/s`,
-        geometryId: 'geo-001',
+        geometryId,
         fluidParams: {
           continuousVelocity: rec.optimalContinuousVelocity,
           dispersedPressure: rec.optimalDispersedPressure,
           flowRateRatio: rec.optimalFlowRateRatio,
+          interfacialTension: 12.5,
+          continuousViscosity: 8.5,
+          dispersedViscosity: 2.1,
+          surfaceWettability: 75,
         },
       });
       navigate(`/tasks/${t.id}/monitor`);
